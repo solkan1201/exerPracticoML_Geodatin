@@ -1,4 +1,26 @@
 
+//https://code.earthengine.google.com/eef6d7dd79457ba41c04a081c3e94e89
+
+var functExport = function(featCol, name){
+    
+    var pmtoExpoAsset ={
+      collection: featCol,
+      description: name,
+      assetId: 'users/CartasSol/ROIs/' + name
+    }    
+    Export.table.toAsset(pmtoExpoAsset)
+    
+    var pmtoExporDriver ={
+      collection: featCol,
+      description: name,
+      folder: 'CSV'
+    }
+    Export.table.toDrive(pmtoExporDriver)
+
+    print("Exportando 🚑 " + name )
+    
+}
+
 var lsTile = {
     124 : [
         '21KZA','21KZU','21KZV','22KBD','22KBE','22KBF'
@@ -24,8 +46,7 @@ var lsTile = {
         '20KRG','20LRH','21KTB','21KUA','21KUB','21KVB',
         '21LTC','21LTD','21LUC','21LUD','21LUE','21LVC',
         '21LVD','21LVE'
-    ]
-    
+    ]    
 }
 
 var visData = {
@@ -38,48 +59,141 @@ var visData = {
         min: 0,
         max: 1,
         palette: ['ff6347']
+    },
+    visCalss:
+    {
+      min: 0,
+      max: 1,
+      palette: ['FFFFFF','ff6347']
     }
 }
 
 var param = {
     assetAl: 'users/DB_ufba/shapes/dashboard_alerts-shapefile',
     assetGrad: 'users/DB_ufba/shapes/grade_sentinel_brasil',
-    tile: lsTile['67'],
-    orbita: 67,
+    assetPan: 'users/diegocosta/BAP_RH_patanal',
+    tile: '21KYV',
+    orbita: 24,
     start: '2020-02-01',
-    end: '2020-07-01',
+    dateCort: '2020-06-01',
+    end: '2020-08-01',
     ccobert : 70,
-    bandasS2: ['B2','B3','B4','B8','B11','B12']
+    bandasS2: ['B2','B3','B4','B8','B11','B12'],
+    bandasS2De: ['B2U','B3U','B4U','B8U','B11U','B12U']
 }
 
 var grade = ee.FeatureCollection(param.assetGrad)
-print('grade de Brasil', grade)
+var limitPant = ee.FeatureCollection(param.assetPan)
+print('grade de Brasil ♻ ', grade)
+
 var imgCol = ee.ImageCollection('COPERNICUS/S2_SR')
                     .filterDate(param.start, param.end)
                     .filter(ee.Filter.eq('SENSING_ORBIT_NUMBER', param.orbita))
-                    .filter(ee.Filter.inList('MGRS_TILE', param.tile))
+                    .filter(ee.Filter.eq('MGRS_TILE', param.tile))
                     .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', param.ccobert))
                     .select(param.bandasS2)
 
-print(imgCol)
+print("Images carregadas ⚑", imgCol)
 
-var limite = grade.filter(ee.Filter.inList('NAME', param.tile))
-var alertas = ee.FeatureCollection(param.assetAl).filterBounds(limite)
-                            .filter(ee.Filter.gt('DataDetec', ee.Date(param.start)))
+var imgAntes = imgCol.filterDate(param.start, '2020-06-01')
+                        .sort('CLOUDY_PIXEL_PERCENTAGE')
+                        .first()
 
+var imgDepois = imgCol.filterDate(param.dateCort, param.end)
+                          .sort('CLOUDY_PIXEL_PERCENTAGE')
+                                                  .first()
+
+var alertas = ee.FeatureCollection(param.assetAl)
+                                .filterBounds(limitPant)
+                                .map(function(feat){
+                                  return feat.set('Datadetec', ee.Date(feat.get('DataDetec')));
+                                })
+                                .filter(ee.Filter.gt('Datadetec', ee.Date(param.dateCort)))
+
+print("alertas ⌚ ", alertas.limit(2))
+print(alertas.size())
 
 // datasetCloudS2 = ee.ImageCollection('COPERNICUS/S2_CLOUD_PROBABILITY')
 //                             .filterDate(param.start, param.end)
 
-var bordaLimit = ee.Image().byte().paint({
-    featureCollection: limite,
+var bordaGrade = ee.Image().byte().paint({
+    featureCollection: grade,
     color: 1,
     width: 3
-  });
+});
 var bordaAlerta = ee.Image().byte().paint({
     featureCollection: alertas,
     color: 1,
     width: 3
-  });
-Map.addLayer(bordaLimit, {palette: 'ffa500'}, 'limit')
+});
+var bordaBiomas = ee.Image().byte().paint({
+    featureCollection: limitPant,
+    color: 1,
+    width: 3
+});
+
+
+
+Map.addLayer(imgAntes, visData.visS2, 'RGBAntes');
+Map.addLayer(imgDepois, visData.visS2, 'RGBDepois');
+// Map.addLayer(bordaBiomas, {palette: '00FF00'}, 'Bioma')
+// Map.addLayer(bordaGrade, {palette: 'ffa500'}, 'Grade')
 Map.addLayer(bordaAlerta, visData.visAl, 'Aletas')
+
+
+//==============================================================//
+//==== Processo de Coleta de amostras para ambas imagens========//
+//==============================================================//
+// Joins das imagens e coleta de amostras 
+imgDepois = imgDepois.rename(param.bandasS2De)
+imgDepois = imgDepois.addBands(imgAntes)
+
+print("imagem final", imgDepois)
+
+var areaColeta = ee.FeatureCollection(Alertas).merge(NoAlertas)
+
+var pmtosCol ={
+  collection: areaColeta, 
+  properties: ['classe'], 
+  scale: 10, 
+  geometries: true
+}
+var ROIs = imgDepois.sampleRegions(pmtosCol)
+
+print("Revisar ⌨ coletas de 2 ⌚ ", ROIs.limit(2))
+print(ee.String("size of ROIs  ☢ : ").cat(ROIs.size()))
+print("Histogram of ROIs 💰 : ", ROIs.aggregate_histogram('classe'))
+
+// Exportando os Pontos
+// functExport(ROIs, 'ColetaAlertasPantanal')
+
+
+//==============================================================//
+//==== Porcesso de Classificação de imagens SVM e RF ===========//
+//==============================================================//
+
+// http://www.lapix.ufsc.br/ensino/reconhecimento-de-padroes/reconhecimento-de-padroessupport-vector-machines/
+// https://www.codigofluente.com.br/aula-16-scikit-learn-treinamento-do-modelo-svm/
+// var pmtroSVM ={
+//     decisionProcedure: 'Margin', 
+//     svmType: 'C_SVC', 
+//     kernelType: 'RBF'
+// }
+
+// var clasifierSVM = ee.Classifier.libsvm(pmtroSVM).train(ROIs, 'classe')
+// var imgClassSVM =  imgDepois.classify(clasifierSVM, "SVM")
+
+// var mascSVM = imgClassSVM.eq(1)
+// Map.addLayer(imgClassSVM.updateMask(mascSVM), visData.visCalss , "SVM")
+
+var pmtroRF ={
+    numberOfTrees: 30, 
+    variablesPerSplit: 7, 
+    minLeafPopulation: 3
+}
+var clasifierRF = ee.Classifier.smileRandomForest(pmtroRF).train(ROIs, 'classe')
+var imgClassRF =  imgDepois.classify(clasifierRF, "RF")
+
+var mascRF = imgClassRF.eq(1)
+Map.addLayer(imgClassRF.updateMask(mascRF), visData.visCalss , "RF")
+  

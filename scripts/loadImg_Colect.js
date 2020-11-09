@@ -1,6 +1,7 @@
 
 //https://code.earthengine.google.com/eef6d7dd79457ba41c04a081c3e94e89
-
+// fluxograma aqui 
+//https://lucid.app/lucidchart/e14bedd0-efa4-4a42-a282-0435b0ceb826/edit?beaconFlowId=49DB9E874DF063E1&page=0_0#?folder_id=home&browser=icon
 var functExport = function(featCol, name){
     
     var pmtoExpoAsset ={
